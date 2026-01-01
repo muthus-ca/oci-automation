@@ -1,454 +1,148 @@
-{\rtf1\ansi\ansicpg1252\cocoartf2822
-\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fnil\fcharset0 OracleSans-Regular;\f1\fswiss\fcharset0 Helvetica;\f2\froman\fcharset0 Times-Roman;
-}
-{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
-{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;}
-\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
-\deftab720
-\pard\pardeftab720\partightenfactor0
-
-\f0\fs26\fsmilli13333 \cf2 \expnd0\expndtw0\kerning0
 # func.py
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 import io
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 import json
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 import oci
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 from fdk import response
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 from oci.exceptions import ServiceError
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 def handler(ctx, data: io.BytesIO = None):
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 """
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 Expected JSON input:
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 \{
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0 "adb_ocid": "<autonomous-db-ocid>",
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0 "new_cpu_count": 2
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 \}
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 Purpose:
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 - Dynamically scale Autonomous Database compute (OCPU or ECPU)
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 - Uses Resource Principals for auth (no API keys)
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 - Determines compute model before update
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 Behavior:
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 - If DB is using compute_model = "ECPU":
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 Updates ONLY `compute_count`
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 - Else (OCPU / legacy model):
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 Updates `cpu_core_count`
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 """
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # ------------------------------------------------------------
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # 1) Parse incoming JSON payload
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # ------------------------------------------------------------
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 try:
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 # Cloud Functions send data as a stream; load JSON safely
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 body = json.loads(data.getvalue().decode()) if data else \{\}
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 except Exception:
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 return response.Response(
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 ctx,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 status_code=400,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 response_data="Invalid JSON payload"
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 )
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # Extract required fields
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 adb_ocid = body.get("adb_ocid")
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 new_cpu = body.get("new_cpu_count")
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # Validate required fields
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 if not adb_ocid or not isinstance(new_cpu, int):
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 return response.Response(
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 ctx,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 status_code=400,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 response_data="Required fields: adb_ocid (str), new_cpu_count (int)"
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 )
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # ------------------------------------------------------------
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # 2) Get Resource Principal signer
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 #\'a0\'a0\'a0 (OCI Functions standard mechanism to call OCI services)
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # ------------------------------------------------------------
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 try:
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 signer = oci.auth.signers.get_resource_principals_signer()
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 except Exception as e:
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 return response.Response(
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 ctx,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 status_code=500,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 response_data=f"Failed to get resource principal signer: \{e\}"
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 )
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # ------------------------------------------------------------
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # 3) Query Autonomous Database to check compute model (ECPU/OCPU)
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # ------------------------------------------------------------
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 db_client = oci.database.DatabaseClient(config=\{\}, signer=signer)
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 try:
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 adb_details = db_client.get_autonomous_database(adb_ocid).data
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 compute_model = getattr(adb_details, "compute_model", None)
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 except ServiceError as se:
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 return response.Response(
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 ctx,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 status_code=500,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 response_data=f"OCI Service error fetching ADB details: \{se.message\}"
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 )
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 except Exception as e:
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 return response.Response(
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 ctx,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 status_code=500,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 response_data=f"Unexpected error fetching ADB details: \{e\}"
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 )
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # ------------------------------------------------------------
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # 4) Decide whether to update ECPU compute_count or OCPU cpu_core_count
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # ------------------------------------------------------------
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 cm = (compute_model or "").upper()
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 if cm == "ECPU":
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 # The DB is already using ECPU compute model.
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 # IMPORTANT: Do NOT send compute_model again (API does not allow it)
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 update_details = oci.database.models.UpdateAutonomousDatabaseDetails(
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 compute_count=float(new_cpu)\'a0\'a0 # Set new ECPU count
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 )
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 else:
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 # OCPU-based Autonomous DB
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 update_details = oci.database.models.UpdateAutonomousDatabaseDetails(
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 cpu_core_count=int(new_cpu)\'a0\'a0 # Set new CPU core count
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 )
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # ------------------------------------------------------------
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # 5) Perform the ADB compute update
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 # ------------------------------------------------------------
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 try:
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 resp = db_client.update_autonomous_database(
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 autonomous_database_id=adb_ocid,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 update_autonomous_database_details=update_details
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 )
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 adb = resp.data
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 # Build structured JSON response
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 result = \{
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 "status": "accepted",
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 "message": "Compute update submitted",
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 "adb_ocid": adb.id,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 "compute_model": getattr(adb, "compute_model", None),
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 "compute_count": getattr(adb, "compute_count", None),
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 "cpu_core_count": getattr(adb, "cpu_core_count", None),
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 "lifecycle_state": adb.lifecycle_state
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 \}
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 return response.Response(
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 ctx,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 status_code=200,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 response_data=json.dumps(result, default=str),
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 headers=\{"Content-Type": "application/json"\}
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 )
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 except ServiceError as se:
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 # Handles OCI service-level failures
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 return response.Response(
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 ctx,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 status_code=500,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 response_data=f"OCI Service error updating ADB: \{se.message\}"
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 )
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0 except Exception as e:
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 # Handles unanticipated runtime errors
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 return response.Response(
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 ctx,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 status_code=500,
-\f1\fs32 \
-
-\f0\fs26\fsmilli13333 \'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0\'a0 response_data=f"Unexpected error updating ADB: \{e\}"
-\f1\fs32 \
-\pard\pardeftab720\sl306\partightenfactor0
-
-\f0\fs26\fsmilli13333 \cf2 \'a0\'a0\'a0\'a0\'a0\'a0\'a0 )
-\f2\fs24  }
+ 
+import io
+import json
+import oci
+from fdk import response
+from oci.exceptions import ServiceError
+ 
+ 
+def handler(ctx, data: io.BytesIO = None):
+    """
+    Expected JSON input:
+    {
+      "adb_ocid": "<autonomous-db-ocid>",
+      "new_cpu_count": 2
+    }
+ 
+    Purpose:
+    - Dynamically scale Autonomous Database compute (OCPU or ECPU)
+    - Uses Resource Principals for auth (no API keys)
+    - Determines compute model before update
+ 
+    Behavior:
+    - If DB is using compute_model = "ECPU":
+         Updates ONLY `compute_count`
+    - Else (OCPU / legacy model):
+         Updates `cpu_core_count`
+    """
+ 
+    # ------------------------------------------------------------
+    # 1) Parse incoming JSON payload
+    # ------------------------------------------------------------
+    try:
+        # Cloud Functions send data as a stream; load JSON safely
+        body = json.loads(data.getvalue().decode()) if data else {}
+    except Exception:
+        return response.Response(
+            ctx,
+            status_code=400,
+            response_data="Invalid JSON payload"
+        )
+ 
+    # Extract required fields
+    adb_ocid = body.get("adb_ocid")
+    new_cpu = body.get("new_cpu_count")
+ 
+    # Validate required fields
+    if not adb_ocid or not isinstance(new_cpu, int):
+        return response.Response(
+            ctx,
+            status_code=400,
+            response_data="Required fields: adb_ocid (str), new_cpu_count (int)"
+        )
+ 
+    # ------------------------------------------------------------
+    # 2) Get Resource Principal signer
+    #    (OCI Functions standard mechanism to call OCI services)
+    # ------------------------------------------------------------
+    try:
+        signer = oci.auth.signers.get_resource_principals_signer()
+    except Exception as e:
+        return response.Response(
+            ctx,
+            status_code=500,
+            response_data=f"Failed to get resource principal signer: {e}"
+        )
+ 
+    # ------------------------------------------------------------
+    # 3) Query Autonomous Database to check compute model (ECPU/OCPU)
+    # ------------------------------------------------------------
+    db_client = oci.database.DatabaseClient(config={}, signer=signer)
+ 
+    try:
+        adb_details = db_client.get_autonomous_database(adb_ocid).data
+        compute_model = getattr(adb_details, "compute_model", None)
+    except ServiceError as se:
+        return response.Response(
+            ctx,
+            status_code=500,
+            response_data=f"OCI Service error fetching ADB details: {se.message}"
+        )
+    except Exception as e:
+        return response.Response(
+            ctx,
+            status_code=500,
+            response_data=f"Unexpected error fetching ADB details: {e}"
+        )
+ 
+    # ------------------------------------------------------------
+    # 4) Decide whether to update ECPU compute_count or OCPU cpu_core_count
+    # ------------------------------------------------------------
+    cm = (compute_model or "").upper()
+ 
+    if cm == "ECPU":
+        # The DB is already using ECPU compute model.
+        # IMPORTANT: Do NOT send compute_model again (API does not allow it)
+        update_details = oci.database.UpdateAutonomousDatabaseDetails(
+            cpu_core_count=float(new_cpu)   # Set new ECPU count
+        )
+    else:
+        # OCPU-based Autonomous DB
+        update_details = oci.database.UpdateAutonomousDatabaseDetails(
+            cpu_core_count=int(new_cpu)   # Set new CPU core count
+        )
+ 
+    # ------------------------------------------------------------
+    # 5) Perform the ADB compute update
+    # ------------------------------------------------------------
+    try:
+        resp = db_client.update_autonomous_database(
+            autonomous_database_id=adb_ocid,
+            update_autonomous_database_details=update_details
+        )
+ 
+        adb = resp.data
+ 
+        # Build structured JSON response
+        result = {
+            "status": "accepted",
+            "message": "Compute update submitted",
+            "adb_ocid": adb.id,
+            "compute_model": getattr(adb, "compute_model", None),
+            "compute_count": getattr(adb, "compute_count", None),
+            "cpu_core_count": getattr(adb, "cpu_core_count", None),
+            "lifecycle_state": adb.lifecycle_state
+        }
+ 
+        return response.Response(
+            ctx,
+            status_code=200,
+            response_data=json.dumps(result, default=str),
+            headers={"Content-Type": "application/json"}
+        )
+ 
+    except ServiceError as se:
+        # Handles OCI service-level failures
+        return response.Response(
+            ctx,
+            status_code=500,
+            response_data=f"OCI Service error updating ADB: {se.message}"
+        )
+    except Exception as e:
+        # Handles unanticipated runtime errors
+        return response.Response(
+            ctx,
+            status_code=500,
+            response_data=f"Unexpected error updating ADB: {e}"
+        ) 
