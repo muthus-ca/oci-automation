@@ -5,144 +5,83 @@ import json
 import oci
 from fdk import response
 from oci.exceptions import ServiceError
- 
- 
+
+
 def handler(ctx, data: io.BytesIO = None):
-    """
-    Expected JSON input:
-    {
-      "adb_ocid": "<autonomous-db-ocid>",
-      "new_cpu_count": 2
-    }
- 
-    Purpose:
-    - Dynamically scale Autonomous Database compute (OCPU or ECPU)
-    - Uses Resource Principals for auth (no API keys)
-    - Determines compute model before update
- 
-    Behavior:
-    - If DB is using compute_model = "ECPU":
-         Updates ONLY `compute_count`
-    - Else (OCPU / legacy model):
-         Updates `cpu_core_count`
-    """
- 
-    # ------------------------------------------------------------
-    # 1) Parse incoming JSON payload
-    # ------------------------------------------------------------
-    try:
-        # Cloud Functions send data as a stream; load JSON safely
-        body = json.loads(data.getvalue().decode()) if data else {}
-    except Exception:
-        return response.Response(
-            ctx,
-            status_code=400,
-            response_data="Invalid JSON payload"
-        )
- 
-    # Extract required fields
-    adb_ocid = body.get("adb_ocid")
-    new_cpu = body.get("new_cpu_count")
- 
-    # Validate required fields
-    if not adb_ocid or not isinstance(new_cpu, int):
-        return response.Response(
-            ctx,
-            status_code=400,
-            response_data="Required fields: adb_ocid (str), new_cpu_count (int)"
-        )
- 
-    # ------------------------------------------------------------
-    # 2) Get Resource Principal signer
-    #    (OCI Functions standard mechanism to call OCI services)
-    # ------------------------------------------------------------
-    try:
-        signer = oci.auth.signers.get_resource_principals_signer()
-    except Exception as e:
-        return response.Response(
-            ctx,
-            status_code=500,
-            response_data=f"Failed to get resource principal signer: {e}"
-        )
- 
-    # ------------------------------------------------------------
-    # 3) Query Autonomous Database to check compute model (ECPU/OCPU)
-    # ------------------------------------------------------------
-    db_client = oci.database.DatabaseClient(config={}, signer=signer)
- 
-    try:
-        adb_details = db_client.get_autonomous_database(adb_ocid).data
-        compute_model = getattr(adb_details, "compute_model", None)
-    except ServiceError as se:
-        return response.Response(
-            ctx,
-            status_code=500,
-            response_data=f"OCI Service error fetching ADB details: {se.message}"
-        )
-    except Exception as e:
-        return response.Response(
-            ctx,
-            status_code=500,
-            response_data=f"Unexpected error fetching ADB details: {e}"
-        )
- 
-    # ------------------------------------------------------------
-    # 4) Decide whether to update ECPU compute_count or OCPU cpu_core_count
-    # ------------------------------------------------------------
-    cm = (compute_model or "").upper()
- 
-    if cm == "ECPU":
-        # The DB is already using ECPU compute model.
-        # IMPORTANT: Do NOT send compute_model again (API does not allow it)
-        update_details = oci.database.UpdateAutonomousDatabaseDetails(
-            cpu_core_count=float(new_cpu)   # Set new ECPU count
-        )
-    else:
-        # OCPU-based Autonomous DB
-        update_details = oci.database.UpdateAutonomousDatabaseDetails(
-            cpu_core_count=int(new_cpu)   # Set new CPU core count
-        )
- 
-    # ------------------------------------------------------------
-    # 5) Perform the ADB compute update
-    # ------------------------------------------------------------
-    try:
-        resp = db_client.update_autonomous_database(
-            autonomous_database_id=adb_ocid,
-            update_autonomous_database_details=update_details
-        )
- 
-        adb = resp.data
- 
-        # Build structured JSON response
-        result = {
-            "status": "accepted",
-            "message": "Compute update submitted",
-            "adb_ocid": adb.id,
-            "compute_model": getattr(adb, "compute_model", None),
-            "compute_count": getattr(adb, "compute_count", None),
-            "cpu_core_count": getattr(adb, "cpu_core_count", None),
-            "lifecycle_state": adb.lifecycle_state
-        }
- 
-        return response.Response(
-            ctx,
-            status_code=200,
-            response_data=json.dumps(result, default=str),
-            headers={"Content-Type": "application/json"}
-        )
- 
-    except ServiceError as se:
-        # Handles OCI service-level failures
-        return response.Response(
-            ctx,
-            status_code=500,
-            response_data=f"OCI Service error updating ADB: {se.message}"
-        )
-    except Exception as e:
-        # Handles unanticipated runtime errors
-        return response.Response(
-            ctx,
-            status_code=500,
-            response_data=f"Unexpected error updating ADB: {e}"
-        ) 
+    """
+    Expected JSON input:
+    {
+      "adb_ocid": "<autonomous-db-ocid>",
+      "new_cpu_count": 2
+    }
+
+    Purpose:
+    - Dynamically scale Autonomous Database compute (OCPU or ECPU)
+    - Uses Resource Principals for auth (no API keys)
+    - Determines compute model before update
+
+    Behavior:
+    - If DB is using compute_model = "ECPU":
+         Updates ONLY `compute_count`
+    - Else (OCPU / legacy model):
+         Updates `cpu_core_count`
+    """
+
+    try:
+        body = json.loads(data.getvalue().decode()) if data else {}
+    except Exception:
+        return response.Response(ctx, 400, "Invalid JSON payload")
+
+    adb_ocid = body.get("adb_ocid")
+    new_cpu = body.get("new_cpu_count")
+
+    if not adb_ocid or not isinstance(new_cpu, int):
+        return response.Response(
+            ctx, 400,
+            "Required fields: adb_ocid (str), new_cpu_count (int)"
+        )
+
+    try:
+        signer = oci.auth.signers.get_resource_principals_signer()
+    except Exception as e:
+        return response.Response(ctx, 500, f"Failed to get signer: {e}")
+
+    db_client = oci.database.DatabaseClient(config={}, signer=signer)
+
+    try:
+        adb_details = db_client.get_autonomous_database(adb_ocid).data
+        compute_model = getattr(adb_details, "compute_model", None)
+    except ServiceError as se:
+        return response.Response(ctx, 500, se.message)
+
+    cm = (compute_model or "").upper()
+
+    if cm == "ECPU":
+        update_details = oci.database.models.UpdateAutonomousDatabaseDetails(
+            compute_count=float(new_cpu)
+        )
+    else:
+        update_details = oci.database.models.UpdateAutonomousDatabaseDetails(
+            cpu_core_count=int(new_cpu)
+        )
+
+    try:
+        resp = db_client.update_autonomous_database(adb_ocid, update_details)
+        adb = resp.data
+
+        return response.Response(
+            ctx,
+            200,
+            json.dumps({
+                "status": "accepted",
+                "message": "Compute update submitted",
+                "adb_ocid": adb.id,
+                "compute_model": adb.compute_model,
+                "compute_count": adb.compute_count,
+                "cpu_core_count": adb.cpu_core_count,
+                "lifecycle_state": adb.lifecycle_state
+            }),
+            headers={"Content-Type": "application/json"}
+        )
+    except ServiceError as se:
+        return response.Response(ctx, 500, se.message)
