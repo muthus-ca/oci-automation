@@ -1,5 +1,5 @@
 # func.py
- 
+
 import io
 import json
 import oci
@@ -7,24 +7,13 @@ from fdk import response
 from oci.exceptions import ServiceError
 
 
-def handler(ctx, data: io.BytesIO = None):
+def handler(ctx, data=None):
     """
     Expected JSON input:
     {
       "adb_ocid": "<autonomous-db-ocid>",
       "new_cpu_count": 2
     }
-
-    Purpose:
-    - Dynamically scale Autonomous Database compute (OCPU or ECPU)
-    - Uses Resource Principals for auth (no API keys)
-    - Determines compute model before update
-
-    Behavior:
-    - If DB is using compute_model = "ECPU":
-         Updates ONLY `compute_count`
-    - Else (OCPU / legacy model):
-         Updates `cpu_core_count`
     """
 
     try:
@@ -37,16 +26,17 @@ def handler(ctx, data: io.BytesIO = None):
 
     if not adb_ocid or not isinstance(new_cpu, int):
         return response.Response(
-            ctx, 400,
+            ctx,
+            400,
             "Required fields: adb_ocid (str), new_cpu_count (int)"
         )
 
     try:
         signer = oci.auth.signers.get_resource_principals_signer()
     except Exception as e:
-        return response.Response(ctx, 500, f"Failed to get signer: {e}")
+        return response.Response(ctx, 500, "Failed to get signer: " + str(e))
 
-    db_client = oci.database.DatabaseClient(config={}, signer=signer)
+    db_client = oci.database.DatabaseClient({}, signer=signer)
 
     try:
         adb_details = db_client.get_autonomous_database(adb_ocid).data
