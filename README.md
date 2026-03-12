@@ -201,7 +201,7 @@ Governance & Administration → Resource Scheduler
 Click Schedules
 
 # STEP 2: CREATE A NEW SCHEDULE
-
+"""
 Click Create schedule
 Provide the following details.
 Basic Information
@@ -279,3 +279,4 @@ Each schedule invokes the same function with different JSON payloads.
 # SUMMARY
 By dynamically scaling the baseline ECPU/OCPU for the predictable workload during peak and non-peak hours, customers achieved significant monthly cost savings of around 40–50% per database.
 When applied across multiple Autonomous AI Databases and environments, this delivered substantial cost optimization without affecting performance.
+"""
