@@ -180,7 +180,6 @@ Compartment: <Select Compartment Name>
 Resources: Static and select the deployed Function
 Apply Parameters: parameter type – Body, Value (JSON)
 
-
 In the Payload / Request Body field, enter the JSON input required by the function. (Adjust your CPU count accordingly)
 
 # Increase ECPU Count
